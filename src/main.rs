@@ -2,6 +2,7 @@ use clap::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
 use glob::Pattern;
+use std::env;
 
 /// Simple program to display a directory tree with exclusions
 #[derive(Parser, Debug)]
@@ -11,10 +12,6 @@ struct Args {
     #[arg(default_value = ".")]
     dir: String,
 
-    /// Include hidden files
-    #[arg(short = 'a', long)]
-    all: bool,
-
     /// Maximum depth to display
     #[arg(short, long, default_value_t = usize::MAX)]
     depth: usize,
@@ -22,6 +19,14 @@ struct Args {
     /// Patterns to exclude (comma-separated)
     #[arg(short = 'E', long)]
     exclude: Option<String>,
+
+    /// Include hidden files
+    #[arg(short = 'a', long)]
+    all: bool,
+
+    /// Use Nerd Fonts icons
+    #[arg(short = 'b', long)]
+    nerd_fonts: bool,
 }
 
 fn main() {
@@ -29,6 +34,8 @@ fn main() {
     let exclude_patterns = parse_exclude_patterns(&args.exclude);
     let mut file_count = 0;
     let mut dir_count = 0;
+
+    let nerd_fonts_supported = args.nerd_fonts || env::var("NERDFONTS").is_ok();
 
     println!(".");  // Start character
 
@@ -40,7 +47,8 @@ fn main() {
         "",
         &mut file_count,
         &mut dir_count,
-        args.all
+        args.all,
+        nerd_fonts_supported
     );
 
     println!("\n{} directories, {} files", dir_count, file_count);
@@ -82,7 +90,8 @@ fn display_tree(
     prefix: &str,
     file_count: &mut usize,
     dir_count: &mut usize,
-    include_hidden: bool
+    include_hidden: bool,
+    nerd_fonts_supported: bool
 ) {
     if current_depth > max_depth {
         return;
@@ -107,10 +116,17 @@ fn display_tree(
         let name = entry.file_name().unwrap().to_str().unwrap();
         let is_last = index == non_excluded_entries.len() - 1;
 
+        let icon = if entry.is_dir() {
+            if nerd_fonts_supported { " " } else { "[DIR] " }
+        } else {
+            if nerd_fonts_supported { " " } else { "[FILE] " }
+        };
+
         println!(
-            "{}{}{}",
+            "{}{}{}{}",
             prefix,
             if is_last { "└── " } else { "├── " },
+            icon,
             name
         );
 
@@ -125,7 +141,8 @@ fn display_tree(
                 &new_prefix,
                 file_count,
                 dir_count,
-                include_hidden
+                include_hidden,
+                nerd_fonts_supported
             );
         } else {
             *file_count += 1;
