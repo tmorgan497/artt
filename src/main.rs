@@ -23,7 +23,22 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let exclude_patterns = parse_exclude_patterns(&args.exclude);
-    display_tree(&PathBuf::from(&args.dir), args.depth, 0, &exclude_patterns);
+    let mut file_count = 0;
+    let mut dir_count = 0;
+
+    println!(".");  // Start character
+
+    display_tree(
+        &PathBuf::from(&args.dir),
+        args.depth,
+        0,
+        &exclude_patterns,
+        "",
+        &mut file_count,
+        &mut dir_count
+    );
+
+    println!("\n{} directories, {} files", dir_count, file_count);
 }
 
 fn parse_exclude_patterns(patterns: &Option<String>) -> Vec<Pattern> {
@@ -46,46 +61,62 @@ fn should_exclude(path: &Path, patterns: &[Pattern]) -> bool {
         path_str.to_string()
     };
 
-    // dbg!(&path_str, &normalized_path); // Debug output for paths
-
-    patterns.iter().any(|p| {
-        // dbg!(p, p.matches(&normalized_path), p.matches(&path_str)); // Debug pattern matching
-        p.matches(&normalized_path) || p.matches(&path_str)
-    })
+    patterns.iter().any(|p| p.matches(&normalized_path) || p.matches(&path_str))
 }
 
-fn display_tree(path: &Path, max_depth: usize, current_depth: usize, exclude_patterns: &[Pattern]) {
+fn display_tree(
+    path: &Path,
+    max_depth: usize,
+    current_depth: usize,
+    exclude_patterns: &[Pattern],
+    prefix: &str,
+    file_count: &mut usize,
+    dir_count: &mut usize
+) {
     if current_depth > max_depth {
         return;
     }
 
     let entries = match fs::read_dir(path) {
-        Ok(entries) => entries,
+        Ok(entries) => entries.collect::<Result<Vec<_>, _>>().unwrap_or_default(),
         Err(_) => return,
     };
 
+    let mut non_excluded_entries = vec![];
+
     for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        let path = entry.path();
-        let name = path.file_name().unwrap().to_str().unwrap();
-        let full_path = path.to_string_lossy().replace("\\", "/"); // Normalize full path
-
-        if should_exclude(&path, exclude_patterns) {
-            continue;
+        let entry_path = entry.path();
+        if !should_exclude(&entry_path, exclude_patterns) {
+            non_excluded_entries.push(entry);
         }
+    }
+
+    for (index, entry) in non_excluded_entries.iter().enumerate() {
+        let entry = entry.path();
+        let name = entry.file_name().unwrap().to_str().unwrap();
+        let is_last = index == non_excluded_entries.len() - 1;
 
         println!(
-            "{}{}",
-            "  ".repeat(current_depth),
+            "{}{}{}",
+            prefix,
+            if is_last { "└── " } else { "├── " },
             name
         );
 
-        if path.is_dir() {
-            display_tree(&path, max_depth, current_depth + 1, exclude_patterns);
+        if entry.is_dir() {
+            *dir_count += 1;
+            let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+            display_tree(
+                &entry,
+                max_depth,
+                current_depth + 1,
+                exclude_patterns,
+                &new_prefix,
+                file_count,
+                dir_count
+            );
+        } else {
+            *file_count += 1;
         }
     }
 }
