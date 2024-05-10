@@ -11,6 +11,10 @@ struct Args {
     #[arg(default_value = ".")]
     dir: String,
 
+    /// Include hidden files
+    #[arg(short = 'a', long)]
+    all: bool,
+
     /// Maximum depth to display
     #[arg(short, long, default_value_t = usize::MAX)]
     depth: usize,
@@ -35,7 +39,8 @@ fn main() {
         &exclude_patterns,
         "",
         &mut file_count,
-        &mut dir_count
+        &mut dir_count,
+        args.all
     );
 
     println!("\n{} directories, {} files", dir_count, file_count);
@@ -50,7 +55,7 @@ fn parse_exclude_patterns(patterns: &Option<String>) -> Vec<Pattern> {
     }
 }
 
-fn should_exclude(path: &Path, patterns: &[Pattern]) -> bool {
+fn should_exclude(path: &Path, patterns: &[Pattern], include_hidden: bool) -> bool {
     let mut path_str = path.to_string_lossy().replace("\\", "/"); // Normalize path
     if path_str.starts_with("./") {
         path_str = path_str.replacen("./", "", 1);
@@ -61,7 +66,12 @@ fn should_exclude(path: &Path, patterns: &[Pattern]) -> bool {
         path_str.to_string()
     };
 
-    patterns.iter().any(|p| p.matches(&normalized_path) || p.matches(&path_str))
+    let is_hidden = path.file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.starts_with('.'))
+                        .unwrap_or(false);
+
+    (!include_hidden && is_hidden) || patterns.iter().any(|p| p.matches(&normalized_path) || p.matches(&path_str))
 }
 
 fn display_tree(
@@ -71,7 +81,8 @@ fn display_tree(
     exclude_patterns: &[Pattern],
     prefix: &str,
     file_count: &mut usize,
-    dir_count: &mut usize
+    dir_count: &mut usize,
+    include_hidden: bool
 ) {
     if current_depth > max_depth {
         return;
@@ -86,7 +97,7 @@ fn display_tree(
 
     for entry in entries {
         let entry_path = entry.path();
-        if !should_exclude(&entry_path, exclude_patterns) {
+        if !should_exclude(&entry_path, exclude_patterns, include_hidden) {
             non_excluded_entries.push(entry);
         }
     }
@@ -113,7 +124,8 @@ fn display_tree(
                 exclude_patterns,
                 &new_prefix,
                 file_count,
-                dir_count
+                dir_count,
+                include_hidden
             );
         } else {
             *file_count += 1;
