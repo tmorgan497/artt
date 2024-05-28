@@ -12,14 +12,6 @@ struct Args {
     #[arg(default_value = ".")]
     dir: String,
 
-    /// Maximum depth to display
-    #[arg(short, long, default_value_t = usize::MAX)]
-    depth: usize,
-
-    /// Patterns to exclude (comma-separated)
-    #[arg(short = 'E', long)]
-    exclude: Option<String>,
-
     /// Include hidden files
     #[arg(short = 'a', long)]
     all: bool,
@@ -27,6 +19,18 @@ struct Args {
     /// Use Nerd Fonts icons
     #[arg(short = 'b', long)]
     nerd_fonts: bool,
+
+    /// Enable color output
+    #[arg(short = 'C', long)]
+    color: bool,
+
+    /// Maximum depth to display
+    #[arg(short, long, default_value_t = usize::MAX)]
+    depth: usize,
+
+    /// Patterns to exclude (comma-separated)
+    #[arg(short = 'E', long)]
+    exclude: Option<String>,
 }
 
 fn main() {
@@ -36,6 +40,7 @@ fn main() {
     let mut dir_count = 0;
 
     let nerd_fonts_supported = args.nerd_fonts || env::var("NERDFONTS").is_ok();
+    let color_supported = args.color || env::var("LS_COLORS").is_ok() || env::var("TREE_COLORS").is_ok();
 
     println!(".");  // Start character
 
@@ -48,7 +53,8 @@ fn main() {
         &mut file_count,
         &mut dir_count,
         args.all,
-        nerd_fonts_supported
+        nerd_fonts_supported,
+        color_supported
     );
 
     println!("\n{} directories, {} files", dir_count, file_count);
@@ -91,7 +97,8 @@ fn display_tree(
     file_count: &mut usize,
     dir_count: &mut usize,
     include_hidden: bool,
-    nerd_fonts_supported: bool
+    nerd_fonts_supported: bool,
+    color_supported: bool
 ) {
     if current_depth > max_depth {
         return;
@@ -122,12 +129,22 @@ fn display_tree(
             if nerd_fonts_supported { " " } else { "[FILE] " }
         };
 
+        let colored_name = if color_supported {
+            if entry.is_dir() {
+                format!("\x1b[34m{}\x1b[0m", name)  // Blue for directories
+            } else {
+                format!("\x1b[32m{}\x1b[0m", name)  // Green for files
+            }
+        } else {
+            name.to_string()
+        };
+
         println!(
             "{}{}{}{}",
             prefix,
             if is_last { "└── " } else { "├── " },
             icon,
-            name
+            colored_name
         );
 
         if entry.is_dir() {
@@ -142,7 +159,8 @@ fn display_tree(
                 file_count,
                 dir_count,
                 include_hidden,
-                nerd_fonts_supported
+                nerd_fonts_supported,
+                color_supported
             );
         } else {
             *file_count += 1;
