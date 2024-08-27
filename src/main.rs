@@ -1,10 +1,12 @@
+/* src\main.rs
+Command-line utility to display a directory tree with exclusions
+*/
+
 use clap::Parser;
 use std::fs;
-use std::path::{Path, PathBuf};
-use glob::Pattern;
-use std::env;
+use std::path::Path;
 
-/// Simple program to display a directory tree with exclusions
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -12,101 +14,135 @@ struct Args {
     #[arg(default_value = ".")]
     dir: String,
 
-    /// Include hidden files
+    /// Show all files
     #[arg(short = 'a', long)]
     all: bool,
 
-    /// Use Nerd Fonts icons
-    #[arg(short = 'b', long)]
+    /// Use Nerd Fonts icons instead of [DIR] and [FILE]
+    #[arg(short = 'b', long, default_value_t = false)]
     nerd_fonts: bool,
 
     /// Enable color output
-    #[arg(short = 'C', long)]
+    #[arg(short = 'C', long, default_value_t = false)]
     color: bool,
 
+    /// List directories only
+    #[arg(short = 'd', long, default_value_t = false)]
+    dironly: bool,
+
     /// Maximum depth to display
-    #[arg(short, long, default_value_t = usize::MAX)]
+    #[arg(short = 'L', long, default_value_t = usize::MAX)]
     depth: usize,
 
-    /// Patterns to exclude (comma-separated)
-    #[arg(short = 'E', long)]
-    exclude: Option<String>,
+    /// Patterns to ignore (pipe-separated)
+    #[arg(short = 'I', long)]
+    ignore: Option<String>,
+
+    /// Turn off file/dir count at the end of the tree listing
+    #[arg(long, default_value_t = false)]
+    noreport: bool,
+
+    /// Debug/Developer mode
+    #[arg(long)]
+    debug: bool,
 }
 
 fn main() {
     let args = Args::parse();
-    let exclude_patterns = parse_exclude_patterns(&args.exclude);
     let mut file_count = 0;
     let mut dir_count = 0;
 
-    let nerd_fonts_supported = args.nerd_fonts || env::var("NERDFONTS").is_ok();
-    let color_supported = args.color || env::var("LS_COLORS").is_ok() || env::var("TREE_COLORS").is_ok();
+    if args.debug {
+        println!(".");
+        println!("Directory: {}", args.dir);
+        println!("All: {}", args.all);
+        println!("Nerd Fonts: {}", args.nerd_fonts);
 
-    println!(".");  // Start character
+        if args.nerd_fonts {
+            println!("Directory icon:  ");
+            println!("File icon:  ");
+        }
 
+        println!("Color: {}", args.color);
+        println!("Dironly: {}", args.dironly);
+        println!("Depth: {}", args.depth);
+
+        println!("Ignore (input): {:?}", args.ignore);
+        let exclude_patterns = parse_exclude_patterns(&args.ignore);
+        println!("Ignore (parsed): {:?}", exclude_patterns);
+
+        println!("No-report: {}", args.noreport);
+    }
+
+    let exclude_patterns = parse_exclude_patterns(&args.ignore);
     display_tree(
-        &PathBuf::from(&args.dir),
+        Path::new(&args.dir),
         args.depth,
         0,
         &exclude_patterns,
         "",
         &mut file_count,
         &mut dir_count,
-        args.all,
-        nerd_fonts_supported,
-        color_supported
+        args.dironly,
+        &args
     );
 
-    println!("\n{} directories, {} files", dir_count, file_count);
+    if !args.noreport {
+        println!("\n{} directories, {} files", dir_count, file_count);
+    }
 }
 
-fn parse_exclude_patterns(patterns: &Option<String>) -> Vec<Pattern> {
+fn parse_exclude_patterns(patterns: &Option<String>) -> Vec<String> {
     match patterns {
-        Some(p) => p.split(',')
-                    .filter_map(|pat| Pattern::new(pat).ok())
+        Some(p) => p.split('|')
+                    .map(|pat| pat.to_string())
                     .collect(),
         None => Vec::new(),
     }
 }
 
-fn should_exclude(path: &Path, patterns: &[Pattern], include_hidden: bool) -> bool {
-    let mut path_str = path.to_string_lossy().replace("\\", "/"); // Normalize path
-    if path_str.starts_with("./") {
-        path_str = path_str.replacen("./", "", 1);
+fn should_exclude(path: &Path, exclude_patterns: &[String], include_hidden: bool) -> bool {
+    let path_str = path.to_string_lossy().replace("\\", "/"); // Normalize path
+
+    if !include_hidden && path.file_name().unwrap().to_str().unwrap().starts_with('.') {
+        return true;
     }
+
+    if exclude_patterns.is_empty() {
+        return false;
+    }
+
     let normalized_path = if path.is_dir() {
         format!("{}/", path_str)
     } else {
         path_str.to_string()
     };
 
-    let is_hidden = path.file_name()
-                        .and_then(|name| name.to_str())
-                        .map(|name| name.starts_with('.'))
-                        .unwrap_or(false);
-
-    (!include_hidden && is_hidden) || patterns.iter().any(|p| p.matches(&normalized_path) || p.matches(&path_str))
+    exclude_patterns.iter().any(|p| normalized_path.contains(p) || path_str.contains(p))
 }
 
 fn display_tree(
     path: &Path,
     max_depth: usize,
     current_depth: usize,
-    exclude_patterns: &[Pattern],
+    exclude_patterns: &[String],
     prefix: &str,
     file_count: &mut usize,
     dir_count: &mut usize,
     include_hidden: bool,
-    nerd_fonts_supported: bool,
-    color_supported: bool
+    args: &Args
 ) {
+
     if current_depth > max_depth {
         return;
     }
 
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries.collect::<Result<Vec<_>, _>>().unwrap_or_default(),
-        Err(_) => return,
+        Err(_) => {
+            println!("Failed to read directory: {}", path.display()); // Add this line for debugging
+            return;
+        },
     };
 
     let mut non_excluded_entries = vec![];
@@ -124,12 +160,12 @@ fn display_tree(
         let is_last = index == non_excluded_entries.len() - 1;
 
         let icon = if entry.is_dir() {
-            if nerd_fonts_supported { " " } else { "[DIR] " }
+            if args.nerd_fonts { " " } else { "[DIR] " }
         } else {
-            if nerd_fonts_supported { " " } else { "[FILE] " }
+            if args.nerd_fonts { " " } else { "[FILE] " }
         };
 
-        let colored_name = if color_supported {
+        let colored_name = if args.color {
             if entry.is_dir() {
                 format!("\x1b[34m{}\x1b[0m", name)  // Blue for directories
             } else {
@@ -159,8 +195,7 @@ fn display_tree(
                 file_count,
                 dir_count,
                 include_hidden,
-                nerd_fonts_supported,
-                color_supported
+                &args
             );
         } else {
             *file_count += 1;
