@@ -77,13 +77,11 @@ fn main() {
     let exclude_patterns = parse_exclude_patterns(&args.ignore);
     display_tree(
         Path::new(&args.dir),
-        args.depth,
         0,
         &exclude_patterns,
         "",
         &mut file_count,
         &mut dir_count,
-        args.dironly,
         &args
     );
 
@@ -123,17 +121,15 @@ fn should_exclude(path: &Path, exclude_patterns: &[String], include_hidden: bool
 
 fn display_tree(
     path: &Path,
-    max_depth: usize,
     current_depth: usize,
     exclude_patterns: &[String],
     prefix: &str,
     file_count: &mut usize,
     dir_count: &mut usize,
-    include_hidden: bool,
     args: &Args
 ) {
 
-    if current_depth > max_depth {
+    if current_depth > args.depth {
         return;
     }
 
@@ -149,7 +145,7 @@ fn display_tree(
 
     for entry in entries {
         let entry_path = entry.path();
-        if !should_exclude(&entry_path, exclude_patterns, include_hidden) {
+        if !should_exclude(&entry_path, exclude_patterns, args.all) {
             non_excluded_entries.push(entry);
         }
     }
@@ -188,13 +184,11 @@ fn display_tree(
             let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
             display_tree(
                 &entry,
-                max_depth,
                 current_depth + 1,
                 exclude_patterns,
                 &new_prefix,
                 file_count,
                 dir_count,
-                include_hidden,
                 &args
             );
         } else {
