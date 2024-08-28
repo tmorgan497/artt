@@ -53,7 +53,6 @@ fn main() {
     let mut dir_count = 0;
 
     if args.debug {
-        println!(".");
         println!("Directory: {}", args.dir);
         println!("All: {}", args.all);
         println!("Nerd Fonts: {}", args.nerd_fonts);
@@ -74,6 +73,7 @@ fn main() {
         println!("No-report: {}", args.noreport);
     }
 
+    println!(".");
     let exclude_patterns = parse_exclude_patterns(&args.ignore);
     display_tree(
         Path::new(&args.dir),
@@ -146,7 +146,10 @@ fn display_tree(
     for entry in entries {
         let entry_path = entry.path();
         if !should_exclude(&entry_path, exclude_patterns, args.all) {
-            non_excluded_entries.push(entry);
+            // If dironly is true, only include directories
+            if !args.dironly || entry_path.is_dir() {
+                non_excluded_entries.push(entry);
+            }
         }
     }
 
@@ -170,6 +173,11 @@ fn display_tree(
         } else {
             name.to_string()
         };
+
+        // If dironly is true and the entry is not a directory, skip it
+        if args.dironly && !entry.is_dir() {
+            continue;
+        }
 
         println!(
             "{}{}{}{}",
